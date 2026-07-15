@@ -1,0 +1,449 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Command — Phase 0 · Situation Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+  /* ---- token system --------------------------------------------------
+     Subject: a commander's situation map / plotting table. Palette is a
+     desaturated slate ground with faint plotting-grid lines and a single
+     warm amber command accent (the colour of a plotter's marks), kept
+     away from the AI-default cream/terracotta and acid-green looks.
+     HUD type is a monospace utility face — a readout, not prose.        */
+  :root{
+    --ground:      #0e1418;
+    --ground-edge: #080c0f;
+    --grid:        #16212700;   /* set via canvas, kept here for reference */
+    --panel:       rgba(9,13,16,.82);
+    --panel-line:  rgba(150,178,187,.16);
+    --hud:         #a6bcc3;
+    --hud-dim:     #63767d;
+    --accent:      #e6a53d;      /* command amber */
+    --accent-dim:  rgba(230,165,61,.28);
+    --ink:         #dfe4e2;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:var(--ground); overflow:hidden;
+    -webkit-user-select:none; user-select:none; touch-action:none; }
+  canvas{ display:block; position:fixed; inset:0; }
+
+  /* HUD panel — top-left readout */
+  #hud{
+    position:fixed; top:14px; left:14px; z-index:5;
+    font-family:var(--mono); color:var(--hud);
+    background:var(--panel); border:1px solid var(--panel-line);
+    border-radius:6px; padding:11px 13px 10px; min-width:210px;
+    backdrop-filter:blur(3px); font-size:12px; line-height:1.5;
+  }
+  #hud .title{
+    color:var(--accent); letter-spacing:.28em; font-size:11px;
+    font-weight:600; margin-bottom:2px;
+  }
+  #hud .sub{ color:var(--hud-dim); letter-spacing:.14em; font-size:9.5px;
+    margin-bottom:9px; text-transform:uppercase; }
+  #hud .row{ display:flex; justify-content:space-between; gap:18px; }
+  #hud .k{ color:var(--hud-dim); }
+  #hud .v{ color:var(--hud); font-variant-numeric:tabular-nums; }
+  #hud .v.good{ color:var(--accent); }
+
+  /* control strip — bottom-left */
+  #bar{
+    position:fixed; bottom:14px; left:14px; z-index:5;
+    display:flex; gap:7px; flex-wrap:wrap;
+    font-family:var(--mono); font-size:11px;
+  }
+  #bar button{
+    font-family:inherit; font-size:11px; letter-spacing:.04em;
+    color:var(--hud); background:var(--panel);
+    border:1px solid var(--panel-line); border-radius:5px;
+    padding:6px 10px; cursor:pointer;
+  }
+  #bar button:hover{ border-color:var(--accent-dim); color:var(--ink); }
+  #bar button:active{ transform:translateY(1px); }
+  #bar button:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+
+  /* keys hint — bottom-right */
+  #keys{
+    position:fixed; bottom:14px; right:14px; z-index:5;
+    font-family:var(--mono); font-size:10.5px; color:var(--hud-dim);
+    text-align:right; line-height:1.7; letter-spacing:.02em;
+  }
+  #keys b{ color:var(--hud); font-weight:500; }
+  @media (max-width:560px){ #keys{ display:none; } }
+</style>
+
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="title">SITUATION MAP</div>
+  <div class="sub">Phase 0 — motion skeleton</div>
+  <div class="row"><span class="k">sim</span><span class="v" id="h-hz">— Hz</span></div>
+  <div class="row"><span class="k">units</span><span class="v" id="h-units">0</span></div>
+  <div class="row"><span class="k">selected</span><span class="v" id="h-sel">0</span></div>
+  <div class="row"><span class="k">moving</span><span class="v" id="h-move">0</span></div>
+  <div class="row"><span class="k">state</span><span class="v good" id="h-state">SETTLED</span></div>
+</div>
+
+<div id="bar">
+  <button id="b-all">Select all</button>
+  <button id="b-add">Add squad</button>
+  <button id="b-reset">Reset</button>
+  <button id="b-grid">Grid: on</button>
+</div>
+
+<div id="keys">
+  <div><b>Drag</b> select · <b>Click</b> pick/clear</div>
+  <div><b>Right-click</b> move here</div>
+  <div><b>A</b> all · <b>Esc</b> clear · <b>R</b> reset</div>
+</div>
+
+<script>
+"use strict";
+/* ====================================================================
+   COMMAND — Phase 0
+   Goal (the gate): a handful of units move to a clicked point, keep
+   their spacing (no stacking), and come to rest cleanly.
+
+   Two things are being proven here, nothing more:
+     1. a fixed-timestep simulation with interpolated rendering, so the
+        sim is deterministic and frame-rate independent;
+     2. one steering primitive = ARRIVE (slow into a point) + SEPARATION
+        (don't overlap neighbours), which every later order verb reuses.
+
+   No combat, no groups-as-orders, no command budget yet.
+   ==================================================================== */
+
+// ---- fixed-timestep constants --------------------------------------
+const SIM_HZ   = 20;          // simulation ticks per second
+const DT       = 1 / SIM_HZ;  // seconds per tick
+const MAX_STEP = 0.25;        // clamp to avoid spiral-of-death after a stall
+
+// ---- steering constants (px, seconds) ------------------------------
+const MAX_SPEED   = 78;   // cruising speed
+const ARRIVE_RAD  = 46;   // start slowing within this distance of target
+const SEP_RAD     = 21;   // neighbours closer than this push apart
+const SEP_SPEED   = 52;   // max separation contribution (as a speed)
+const STEER_GAIN  = 0.28; // how fast actual velocity chases desired (per tick)
+const UNIT_R      = 6.5;  // draw + collision radius
+const REST_EPS    = 2.2;  // below this speed AND desire, snap to rest
+
+// ---- world state ----------------------------------------------------
+let units = [];
+let nextId = 1;
+let showGrid = true;
+
+function makeUnit(x, y, groupId=0){
+  return {
+    id: nextId++,
+    x, y,            // current sim position
+    px: x, py: y,    // position at start of current tick (for interpolation)
+    vx: 0, vy: 0,
+    hp: 100, maxHp: 100,   // carried now, unused until Phase 1
+    groupId,
+    tx: 0, ty: 0, hasTarget: false,
+    selected: false,
+  };
+}
+
+// spawn a loose cluster near a canvas point (CSS pixels)
+function spawnSquad(cx, cy, n=8){
+  for(let i=0;i<n;i++){
+    const a = Math.random()*Math.PI*2, r = Math.random()*34;
+    units.push(makeUnit(cx+Math.cos(a)*r, cy+Math.sin(a)*r));
+  }
+}
+
+// ---- canvas / DPI ---------------------------------------------------
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width  = Math.floor(W * DPR);
+  cv.height = Math.floor(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener("resize", resize);
+
+function initWorld(){
+  units = []; nextId = 1;
+  const cx = W*0.42, cy = H*0.5;
+  spawnSquad(cx, cy, 15);
+}
+
+// ====================================================================
+// SIMULATION STEP  (fixed dt)
+// ====================================================================
+function step(dt){
+  const n = units.length;
+
+  // snapshot previous positions for render interpolation
+  for(let i=0;i<n;i++){ const u=units[i]; u.px=u.x; u.py=u.y; }
+
+  // pass 1: compute each unit's desired velocity from current positions
+  //         (read-only over positions, so ordering can't bias results)
+  const dvx = new Float32Array(n), dvy = new Float32Array(n);
+  for(let i=0;i<n;i++){
+    const u = units[i];
+    let ax=0, ay=0;
+
+    // ARRIVE — steer toward target, easing speed down inside ARRIVE_RAD
+    if(u.hasTarget){
+      const dx=u.tx-u.x, dy=u.ty-u.y;
+      const d=Math.hypot(dx,dy);
+      if(d>0.0001){
+        let speed = MAX_SPEED;
+        if(d < ARRIVE_RAD) speed = MAX_SPEED * (d/ARRIVE_RAD);
+        ax += (dx/d)*speed;
+        ay += (dy/d)*speed;
+      }
+    }
+
+    // SEPARATION — sum of pushes from neighbours inside SEP_RAD
+    let sx=0, sy=0;
+    for(let j=0;j<n;j++){
+      if(j===i) continue;
+      const o=units[j];
+      const dx=u.x-o.x, dy=u.y-o.y;
+      const d2=dx*dx+dy*dy;
+      if(d2 < SEP_RAD*SEP_RAD && d2 > 1e-6){
+        const d=Math.sqrt(d2);
+        const w=(SEP_RAD-d)/SEP_RAD;      // 1 at contact → 0 at edge
+        sx += (dx/d)*w; sy += (dy/d)*w;
+      }
+    }
+    const sMag = Math.hypot(sx,sy);
+    if(sMag>1e-6){
+      const s = Math.min(SEP_SPEED, sMag*SEP_SPEED) / sMag;
+      ax += sx*s; ay += sy*s;
+    }
+
+    // clamp desired to max speed
+    const m=Math.hypot(ax,ay);
+    if(m>MAX_SPEED){ ax=ax/m*MAX_SPEED; ay=ay/m*MAX_SPEED; }
+    dvx[i]=ax; dvy[i]=ay;
+  }
+
+  // pass 2: blend toward desired, integrate, settle
+  for(let i=0;i<n;i++){
+    const u=units[i];
+    u.vx += (dvx[i]-u.vx)*STEER_GAIN;
+    u.vy += (dvy[i]-u.vy)*STEER_GAIN;
+
+    // rest test — kills residual jitter so groups stop cleanly
+    const want=Math.hypot(dvx[i],dvy[i]);
+    const have=Math.hypot(u.vx,u.vy);
+    if(want<REST_EPS && have<REST_EPS){ u.vx=0; u.vy=0; }
+
+    u.x += u.vx*dt; u.y += u.vy*dt;
+
+    // release target once effectively parked on it
+    if(u.hasTarget){
+      const d=Math.hypot(u.tx-u.x,u.ty-u.y);
+      if(d<ARRIVE_RAD*0.5 && have<REST_EPS) u.hasTarget=false;
+    }
+  }
+}
+
+// ====================================================================
+// RENDER  (interpolated by alpha ∈ [0,1) between px,py and x,y)
+// ====================================================================
+function drawGrid(){
+  if(!showGrid) return;
+  ctx.lineWidth=1;
+  const minor=44, major=minor*4;
+  ctx.strokeStyle="rgba(150,178,187,.045)";
+  ctx.beginPath();
+  for(let x=0;x<=W;x+=minor){ ctx.moveTo(x+.5,0); ctx.lineTo(x+.5,H); }
+  for(let y=0;y<=H;y+=minor){ ctx.moveTo(0,y+.5); ctx.lineTo(W,y+.5); }
+  ctx.stroke();
+  ctx.strokeStyle="rgba(150,178,187,.09)";
+  ctx.beginPath();
+  for(let x=0;x<=W;x+=major){ ctx.moveTo(x+.5,0); ctx.lineTo(x+.5,H); }
+  for(let y=0;y<=H;y+=major){ ctx.moveTo(0,y+.5); ctx.lineTo(W,y+.5); }
+  ctx.stroke();
+}
+
+function drawTargetMark(x,y){
+  ctx.strokeStyle="var(--accent)";
+  ctx.strokeStyle="rgba(230,165,61,.85)";
+  ctx.lineWidth=1.2;
+  ctx.beginPath();
+  ctx.moveTo(x-7,y); ctx.lineTo(x-2.5,y);
+  ctx.moveTo(x+2.5,y); ctx.lineTo(x+7,y);
+  ctx.moveTo(x,y-7); ctx.lineTo(x,y-2.5);
+  ctx.moveTo(x,y+2.5); ctx.lineTo(x,y+7);
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(x,y,2.2,0,7); ctx.stroke();
+}
+
+function render(alpha){
+  // ground with a soft vignette
+  ctx.fillStyle="#0e1418"; ctx.fillRect(0,0,W,H);
+  const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.2, W/2,H/2,Math.max(W,H)*0.72);
+  g.addColorStop(0,"rgba(0,0,0,0)"); g.addColorStop(1,"rgba(4,7,9,.55)");
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+
+  drawGrid();
+
+  // destination marks for selected units that are still moving
+  for(const u of units){
+    if(u.selected && u.hasTarget) drawTargetMark(u.tx,u.ty);
+  }
+
+  // units
+  for(const u of units){
+    const x=u.px+(u.x-u.px)*alpha;
+    const y=u.py+(u.y-u.py)*alpha;
+
+    // selection ring
+    if(u.selected){
+      ctx.strokeStyle="rgba(230,165,61,.9)";
+      ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.arc(x,y,UNIT_R+4,0,7); ctx.stroke();
+    }
+
+    // body
+    ctx.fillStyle= u.selected ? "#f0ead9" : "#d7dcda";
+    ctx.beginPath(); ctx.arc(x,y,UNIT_R,0,7); ctx.fill();
+    ctx.strokeStyle="rgba(9,13,16,.9)"; ctx.lineWidth=1.4;
+    ctx.stroke();
+
+    // heading tick (only while meaningfully moving)
+    const sp=Math.hypot(u.vx,u.vy);
+    if(sp>4){
+      const nx=u.vx/sp, ny=u.vy/sp;
+      ctx.strokeStyle= u.selected ? "rgba(230,165,61,.95)" : "rgba(120,138,146,.9)";
+      ctx.lineWidth=1.6;
+      ctx.beginPath();
+      ctx.moveTo(x+nx*(UNIT_R-1), y+ny*(UNIT_R-1));
+      ctx.lineTo(x+nx*(UNIT_R+6), y+ny*(UNIT_R+6));
+      ctx.stroke();
+    }
+  }
+
+  // selection marquee
+  if(sel.active){
+    const {x0,y0,x1,y1}=sel;
+    const rx=Math.min(x0,x1), ry=Math.min(y0,y1);
+    const rw=Math.abs(x1-x0), rh=Math.abs(y1-y0);
+    ctx.fillStyle="rgba(230,165,61,.10)";
+    ctx.fillRect(rx,ry,rw,rh);
+    ctx.strokeStyle="rgba(230,165,61,.8)";
+    ctx.lineWidth=1;
+    ctx.strokeRect(rx+.5,ry+.5,rw,rh);
+  }
+}
+
+// ====================================================================
+// INPUT
+// ====================================================================
+const sel = { active:false, x0:0,y0:0,x1:0,y1:0, moved:false };
+
+function ptFromEvent(e){
+  const r=cv.getBoundingClientRect();
+  return { x:e.clientX-r.left, y:e.clientY-r.top };
+}
+function unitAt(px,py,pad=6){
+  let best=null, bd=1e9;
+  for(const u of units){
+    const d=Math.hypot(u.x-px,u.y-py);
+    if(d<UNIT_R+pad && d<bd){ bd=d; best=u; }
+  }
+  return best;
+}
+
+cv.addEventListener("mousedown",(e)=>{
+  if(e.button!==0) return;          // left button starts selection
+  const p=ptFromEvent(e);
+  sel.active=true; sel.moved=false;
+  sel.x0=sel.x1=p.x; sel.y0=sel.y1=p.y;
+});
+window.addEventListener("mousemove",(e)=>{
+  if(!sel.active) return;
+  const p=ptFromEvent(e);
+  sel.x1=p.x; sel.y1=p.y;
+  if(Math.hypot(p.x-sel.x0,p.y-sel.y0)>4) sel.moved=true;
+});
+window.addEventListener("mouseup",(e)=>{
+  if(e.button!==0 || !sel.active) return;
+  sel.active=false;
+  if(sel.moved){
+    // box select
+    const rx=Math.min(sel.x0,sel.x1), ry=Math.min(sel.y0,sel.y1);
+    const rw=Math.abs(sel.x1-sel.x0), rh=Math.abs(sel.y1-sel.y0);
+    const additive = e.shiftKey;
+    for(const u of units){
+      const inside = u.x>=rx && u.x<=rx+rw && u.y>=ry && u.y<=ry+rh;
+      u.selected = additive ? (u.selected||inside) : inside;
+    }
+  }else{
+    // plain click: pick one, or clear
+    const u=unitAt(sel.x0,sel.y0);
+    if(!e.shiftKey) units.forEach(x=>x.selected=false);
+    if(u) u.selected = e.shiftKey ? !u.selected : true;
+  }
+});
+
+// right-click = move order to selected
+cv.addEventListener("contextmenu",(e)=>{
+  e.preventDefault();
+  const p=ptFromEvent(e);
+  for(const u of units){
+    if(u.selected){ u.tx=p.x; u.ty=p.y; u.hasTarget=true; }
+  }
+});
+
+// keyboard
+window.addEventListener("keydown",(e)=>{
+  if(e.key==="a"||e.key==="A"){ units.forEach(u=>u.selected=true); }
+  else if(e.key==="Escape"){ units.forEach(u=>u.selected=false); }
+  else if(e.key==="r"||e.key==="R"){ initWorld(); }
+});
+
+// buttons
+document.getElementById("b-all").onclick   = ()=>units.forEach(u=>u.selected=true);
+document.getElementById("b-add").onclick   = ()=>spawnSquad(W*0.5+(Math.random()-.5)*140, H*0.5+(Math.random()-.5)*140, 8);
+document.getElementById("b-reset").onclick = ()=>initWorld();
+document.getElementById("b-grid").onclick  = (e)=>{ showGrid=!showGrid; e.target.textContent="Grid: "+(showGrid?"on":"off"); };
+
+// ====================================================================
+// MAIN LOOP  — accumulator drives fixed steps; rAF drives render
+// ====================================================================
+let acc=0, last=performance.now();
+let simCount=0, hzWin=performance.now(), hzShown=SIM_HZ;
+
+function frame(now){
+  let dtReal=(now-last)/1000; last=now;
+  if(dtReal>MAX_STEP) dtReal=MAX_STEP;
+  acc+=dtReal;
+  while(acc>=DT){ step(DT); acc-=DT; simCount++; }
+
+  render(acc/DT);   // alpha = leftover fraction of a tick
+  updateHUD(now);
+  requestAnimationFrame(frame);
+}
+
+function updateHUD(now){
+  if(now-hzWin>=500){
+    hzShown=Math.round(simCount/((now-hzWin)/1000));
+    simCount=0; hzWin=now;
+  }
+  let selN=0, movN=0;
+  for(const u of units){ if(u.selected) selN++; if(Math.hypot(u.vx,u.vy)>REST_EPS) movN++; }
+  document.getElementById("h-hz").textContent    = hzShown+" Hz";
+  document.getElementById("h-units").textContent = units.length;
+  document.getElementById("h-sel").textContent   = selN;
+  document.getElementById("h-move").textContent  = movN;
+  const st=document.getElementById("h-state");
+  if(movN>0){ st.textContent="IN MOTION"; st.classList.remove("good"); }
+  else       { st.textContent="SETTLED";   st.classList.add("good"); }
+}
+
+// boot
+resize();
+initWorld();
+requestAnimationFrame(frame);
+</script>

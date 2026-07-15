@@ -1,0 +1,517 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Command — Phase 1 · Combat & Stance</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+  /* Token system — a commander's situation map. Desaturated slate ground,
+     faint plotting grid, one warm amber command accent (the plotter's mark).
+     Player forces read bone-white; hostile forces a muted brick red.        */
+  :root{
+    --ground:#0e1418; --panel:rgba(9,13,16,.82); --panel-line:rgba(150,178,187,.16);
+    --hud:#a6bcc3; --hud-dim:#63767d; --accent:#e6a53d; --accent-dim:rgba(230,165,61,.28);
+    --ink:#dfe4e2; --hostile:#cf6b58;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--ground);overflow:hidden;
+    -webkit-user-select:none;user-select:none;touch-action:none;}
+  canvas{display:block;position:fixed;inset:0;}
+
+  #hud{position:fixed;top:14px;left:14px;z-index:5;font-family:var(--mono);color:var(--hud);
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;
+    padding:11px 13px 10px;min-width:214px;backdrop-filter:blur(3px);font-size:12px;line-height:1.5;}
+  #hud .title{color:var(--accent);letter-spacing:.28em;font-size:11px;font-weight:600;margin-bottom:2px;}
+  #hud .sub{color:var(--hud-dim);letter-spacing:.14em;font-size:9.5px;margin-bottom:9px;text-transform:uppercase;}
+  #hud .row{display:flex;justify-content:space-between;gap:18px;}
+  #hud .k{color:var(--hud-dim);} #hud .v{color:var(--hud);font-variant-numeric:tabular-nums;}
+  #hud .v.amber{color:var(--accent);} #hud .v.red{color:var(--hostile);}
+  #hud hr{border:none;border-top:1px solid var(--panel-line);margin:8px 0 7px;}
+
+  .bar{position:fixed;z-index:5;display:flex;gap:6px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;align-items:center;}
+  #verbs{bottom:52px;left:14px;} #acts{bottom:14px;left:14px;}
+  .bar .lbl{color:var(--hud-dim);letter-spacing:.12em;font-size:9.5px;text-transform:uppercase;margin-right:4px;}
+  .bar button{font-family:inherit;font-size:11px;letter-spacing:.03em;color:var(--hud);
+    background:var(--panel);border:1px solid var(--panel-line);border-radius:5px;padding:6px 10px;cursor:pointer;}
+  .bar button:hover{border-color:var(--accent-dim);color:var(--ink);}
+  .bar button:active{transform:translateY(1px);}
+  .bar button:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .bar button.on{color:#101418;background:var(--accent);border-color:var(--accent);font-weight:600;}
+
+  #keys{position:fixed;bottom:14px;right:14px;z-index:5;font-family:var(--mono);font-size:10.5px;
+    color:var(--hud-dim);text-align:right;line-height:1.7;letter-spacing:.02em;}
+  #keys b{color:var(--hud);font-weight:500;}
+  @media (max-width:640px){#keys{display:none;}}
+</style>
+
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="title">SITUATION MAP</div>
+  <div class="sub">Phase 1 — combat &amp; stance</div>
+  <div class="row"><span class="k">sim</span><span class="v" id="h-hz">— Hz</span></div>
+  <div class="row"><span class="k">order</span><span class="v amber" id="h-verb">Move</span></div>
+  <div class="row"><span class="k">selected</span><span class="v" id="h-sel">0</span></div>
+  <hr>
+  <div class="row"><span class="k">friendly</span><span class="v" id="h-blue">0</span></div>
+  <div class="row"><span class="k">hostile</span><span class="v red" id="h-red">0</span></div>
+</div>
+
+<div class="bar" id="verbs">
+  <span class="lbl">order</span>
+  <button data-verb="MOVE" class="on">Move</button>
+  <button data-verb="ATTACK">Attack-move</button>
+  <button data-verb="HOLD">Hold</button>
+  <button data-verb="WITHDRAW">Withdraw</button>
+</div>
+
+<div class="bar" id="acts">
+  <span class="lbl">test</span>
+  <button id="b-all">Select all</button>
+  <button id="b-bait">Bait raider</button>
+  <button id="b-redatk">Red attacks</button>
+  <button id="b-reset">Reset</button>
+  <button id="b-grid">Grid: on</button>
+</div>
+
+<div id="keys">
+  <div><b>Drag</b> select · <b>Click</b> pick/clear</div>
+  <div><b>Right-click</b> order to point · <b>Right-drag</b> order to area</div>
+  <div><b>1-4</b> order type · <b>A</b> all · <b>Esc</b> clear · <b>R</b> reset</div>
+</div>
+
+<script>
+"use strict";
+/* ====================================================================
+   COMMAND — Phase 1 : Combat & the stance kernel  (+ area geometry)
+
+   The thesis of the whole project is that the player issues INTENT and
+   the units supply the tactical EXECUTION. Phase 1 builds that execution
+   layer. There is exactly one motor behaviour — ARRIVE + SEPARATION from
+   Phase 0 — and four order "verbs" that are nothing more than presets
+   over a small set of stance parameters laid on top of it:
+
+        leash        how far a unit will stray from its anchor to fight
+        fire         HOLD (don't shoot) / RETURN (shoot back only) / FREE
+        stopToFight  does it halt to engage, or fire on the move
+        urgency      speed multiplier (Withdraw runs)
+
+   Move / Attack-move / Hold / Withdraw are the SAME code with different
+   values in those four fields. That is the point of the design: the verbs
+   are readable presets, not bespoke behaviours.
+
+   Geometry: an order targets a POINT (units cluster) or an AREA (units
+   spread into slots). A wide-thin area is a line; a square area is a
+   dispersed block — dispersed and linear formations fall out of one
+   gesture, at no extra machinery.
+
+   Not yet here: named groups, triggers/follow-ups, command budget,
+   morale, a real opponent brain. Those are later phases.
+   ==================================================================== */
+
+// ---- fixed timestep -------------------------------------------------
+const SIM_HZ=20, DT=1/SIM_HZ, MAX_STEP=0.25;
+
+// ---- steering (px, s) ----------------------------------------------
+const MAX_SPEED=78, ARRIVE_RAD=46, SEP_RAD=21, SEP_SPEED=52,
+      STEER_GAIN=0.28, UNIT_R=6.5, REST_EPS=2.2;
+
+// ---- combat ---------------------------------------------------------
+const SENSE=155,        // how far a unit notices an enemy
+      W_RANGE=58,       // weapon reach
+      W_DMG=9,          // base damage per shot
+      W_CD=0.85,        // seconds between shots
+      DMG_VAR=0.25,     // ±25% damage jitter (placeholder for Phase 5)
+      TRACER_T=0.10;    // shot flash lifetime (s)
+
+/* Stance presets. leash for HOLD doubles as the guard radius. */
+const VERB={
+  MOVE:     {name:"Move",        leash:0,   fire:"RETURN", stopToFight:false, urgency:1.00},
+  ATTACK:   {name:"Attack-move", leash:95,  fire:"FREE",   stopToFight:true,  urgency:1.00},
+  HOLD:     {name:"Hold",        leash:70,  fire:"FREE",   stopToFight:true,  urgency:1.00},
+  WITHDRAW: {name:"Withdraw",    leash:0,   fire:"HOLD",   stopToFight:false, urgency:1.35},
+};
+
+// ---- world ----------------------------------------------------------
+let units=[], tracers=[], nextId=1, showGrid=true;
+let activeVerb="MOVE";
+
+function makeUnit(x,y,faction){
+  return {
+    id:nextId++, faction,               // 0 = player, 1 = hostile
+    x,y, px:x,py:y, vx:0,vy:0,
+    hp:100, maxHp:100,
+    verb:"MOVE",
+    postX:x, postY:y, hasPost:false,    // destination / assigned slot
+    anchorX:x, anchorY:y, hasAnchor:false, // leash origin while fighting
+    cooldown:0,
+    selected:false,
+  };
+}
+
+function setOrder(u,verb,x,y){
+  u.verb=verb; u.postX=x; u.postY=y; u.hasPost=true;
+  if(verb==="HOLD"){ u.anchorX=x; u.anchorY=y; u.hasAnchor=true; } // anchor = post
+  else { u.hasAnchor=false; }                                     // dropped on engage
+}
+
+// ---- scenario -------------------------------------------------------
+function spawnSquad(cx,cy,n,faction){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, r=Math.random()*30;
+    units.push(makeUnit(cx+Math.cos(a)*r, cy+Math.sin(a)*r, faction));
+  }
+}
+function initWorld(){
+  units=[]; tracers=[]; nextId=1;
+  // player squad, left
+  spawnSquad(W*0.24, H*0.5, 12, 0);
+  // hostile line holding the right, spread vertically
+  const n=10, x=W*0.74;
+  for(let i=0;i<n;i++){
+    const y=H*0.28 + (H*0.44)*(i/(n-1));
+    const u=makeUnit(x+(Math.random()-.5)*14, y, 1);
+    setOrder(u,"HOLD",u.x,u.y);   // dig in where they stand
+    units.push(u);
+  }
+}
+
+// ---- canvas / DPI ---------------------------------------------------
+const cv=document.getElementById("c"), ctx=cv.getContext("2d");
+let W=0,H=0,DPR=1;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=innerWidth; H=innerHeight;
+  cv.width=Math.floor(W*DPR); cv.height=Math.floor(H*DPR);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener("resize",resize);
+
+// ---- helpers --------------------------------------------------------
+function nearestEnemy(u){
+  let best=null, bd=SENSE*SENSE;
+  for(const o of units){
+    if(o.faction===u.faction) continue;
+    const dx=o.x-u.x, dy=o.y-u.y, d2=dx*dx+dy*dy;
+    if(d2<bd){ bd=d2; best=o; }
+  }
+  return best;
+}
+
+// ====================================================================
+// SIMULATION STEP
+// ====================================================================
+function step(dt){
+  const n=units.length;
+
+  // snapshot for interpolation + tick cooldowns
+  for(const u of units){ u.px=u.x; u.py=u.y; if(u.cooldown>0) u.cooldown-=dt; }
+
+  // -- pass 1: per-unit decision -> a movement target + maybe a shot ---
+  const mtx=new Float64Array(n), mty=new Float64Array(n);
+  for(let i=0;i<n;i++){
+    const u=units[i], s=VERB[u.verb];
+    let tx=u.hasPost?u.postX:u.x, ty=u.hasPost?u.postY:u.y; // default: go to post
+    let engaging=false;
+
+    const e=nearestEnemy(u);
+    if(e){
+      const dx=e.x-u.x, dy=e.y-u.y, d=Math.hypot(dx,dy);
+      const inRange=d<=W_RANGE;
+      let will=false;
+      if(s.fire==="RETURN") will=inRange;                 // shoot back, never chase
+      else if(s.fire==="FREE"){
+        // engage if the target is reachable within the leash of the anchor
+        if(!u.hasAnchor && u.verb==="ATTACK"){ u.anchorX=u.x; u.anchorY=u.y; u.hasAnchor=true; }
+        const ax=u.hasAnchor?u.anchorX:u.x, ay=u.hasAnchor?u.anchorY:u.y;
+        will = Math.hypot(e.x-ax, e.y-ay) <= s.leash + W_RANGE;
+      } // HOLD-fire (Withdraw): never voluntarily engages
+
+      if(will){
+        engaging=true;
+        if(inRange){
+          // in range: fire; halt if this stance stops to fight
+          if(u.cooldown<=0){ shoot(u,e); u.cooldown=W_CD; }
+          if(s.stopToFight){ tx=u.x; ty=u.y; }            // plant and shoot
+          // else (Move): tx,ty stay = post, keep walking while firing
+        }else{
+          // close, but never past the leash from the anchor
+          const ax=u.hasAnchor?u.anchorX:u.x, ay=u.hasAnchor?u.anchorY:u.y;
+          const adx=e.x-ax, ady=e.y-ay, ad=Math.hypot(adx,ady);
+          if(ad<=s.leash){ tx=e.x; ty=e.y; }              // within leash: go to it
+          else { tx=ax+adx/ad*s.leash; ty=ay+ady/ad*s.leash; } // clamp to leash edge
+        }
+      }
+    }
+    if(!engaging && u.verb==="ATTACK") u.hasAnchor=false;  // broke contact: reset anchor
+    mtx[i]=tx; mty[i]=ty;
+  }
+
+  // -- pass 2: arrive + separation toward the movement target ---------
+  const dvx=new Float64Array(n), dvy=new Float64Array(n);
+  for(let i=0;i<n;i++){
+    const u=units[i], s=VERB[u.verb], top=MAX_SPEED*s.urgency;
+    let ax=0, ay=0;
+    const dx=mtx[i]-u.x, dy=mty[i]-u.y, d=Math.hypot(dx,dy);
+    if(d>0.0001){
+      let speed=top; if(d<ARRIVE_RAD) speed=top*(d/ARRIVE_RAD);
+      ax+=dx/d*speed; ay+=dy/d*speed;
+    }
+    // separation from all nearby units
+    let sx=0,sy=0;
+    for(let j=0;j<n;j++){
+      if(j===i) continue;
+      const o=units[j], ox=u.x-o.x, oy=u.y-o.y, o2=ox*ox+oy*oy;
+      if(o2<SEP_RAD*SEP_RAD && o2>1e-6){
+        const od=Math.sqrt(o2), w=(SEP_RAD-od)/SEP_RAD;
+        sx+=ox/od*w; sy+=oy/od*w;
+      }
+    }
+    const sm=Math.hypot(sx,sy);
+    if(sm>1e-6){ const k=Math.min(SEP_SPEED,sm*SEP_SPEED)/sm; ax+=sx*k; ay+=sy*k; }
+    const m=Math.hypot(ax,ay); if(m>top){ ax=ax/m*top; ay=ay/m*top; }
+    dvx[i]=ax; dvy[i]=ay;
+  }
+
+  // -- pass 3: integrate + settle -------------------------------------
+  for(let i=0;i<n;i++){
+    const u=units[i];
+    u.vx+=(dvx[i]-u.vx)*STEER_GAIN; u.vy+=(dvy[i]-u.vy)*STEER_GAIN;
+    const want=Math.hypot(dvx[i],dvy[i]), have=Math.hypot(u.vx,u.vy);
+    if(want<REST_EPS && have<REST_EPS){ u.vx=0; u.vy=0; }
+    u.x+=u.vx*dt; u.y+=u.vy*dt;
+  }
+
+  // -- remove the dead + expire tracers -------------------------------
+  if(units.some(u=>u.hp<=0)) units=units.filter(u=>u.hp>0);
+  for(const t of tracers) t.t-=dt;
+  if(tracers.some(t=>t.t<=0)) tracers=tracers.filter(t=>t.t>0);
+}
+
+function shoot(u,e){
+  e.hp -= W_DMG*(1+(Math.random()*2-1)*DMG_VAR);
+  tracers.push({x0:u.x,y0:u.y,x1:e.x,y1:e.y,t:TRACER_T,f:u.faction});
+}
+
+// ====================================================================
+// RENDER (interpolated)
+// ====================================================================
+function drawGrid(){
+  if(!showGrid) return;
+  const minor=44, major=minor*4;
+  ctx.lineWidth=1; ctx.strokeStyle="rgba(150,178,187,.045)"; ctx.beginPath();
+  for(let x=0;x<=W;x+=minor){ctx.moveTo(x+.5,0);ctx.lineTo(x+.5,H);}
+  for(let y=0;y<=H;y+=minor){ctx.moveTo(0,y+.5);ctx.lineTo(W,y+.5);}
+  ctx.stroke();
+  ctx.strokeStyle="rgba(150,178,187,.09)"; ctx.beginPath();
+  for(let x=0;x<=W;x+=major){ctx.moveTo(x+.5,0);ctx.lineTo(x+.5,H);}
+  for(let y=0;y<=H;y+=major){ctx.moveTo(0,y+.5);ctx.lineTo(W,y+.5);}
+  ctx.stroke();
+}
+function drawMark(x,y){
+  ctx.strokeStyle="rgba(230,165,61,.85)"; ctx.lineWidth=1.2;
+  ctx.beginPath();
+  ctx.moveTo(x-7,y);ctx.lineTo(x-2.5,y); ctx.moveTo(x+2.5,y);ctx.lineTo(x+7,y);
+  ctx.moveTo(x,y-7);ctx.lineTo(x,y-2.5); ctx.moveTo(x,y+2.5);ctx.lineTo(x,y+7);
+  ctx.stroke(); ctx.beginPath(); ctx.arc(x,y,2.2,0,7); ctx.stroke();
+}
+
+function render(alpha){
+  ctx.fillStyle="#0e1418"; ctx.fillRect(0,0,W,H);
+  const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*.2,W/2,H/2,Math.max(W,H)*.72);
+  g.addColorStop(0,"rgba(0,0,0,0)"); g.addColorStop(1,"rgba(4,7,9,.55)");
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  drawGrid();
+
+  // destination marks for selected, still-moving units
+  for(const u of units){
+    if(u.selected && u.hasPost){
+      const d=Math.hypot(u.postX-u.x,u.postY-u.y);
+      if(d>ARRIVE_RAD*0.6) drawMark(u.postX,u.postY);
+    }
+  }
+
+  // tracers (under units)
+  for(const t of tracers){
+    const a=Math.max(0,t.t/TRACER_T);
+    ctx.strokeStyle = t.f===0 ? `rgba(240,225,200,${a*.9})` : `rgba(230,140,120,${a*.9})`;
+    ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(t.x0,t.y0); ctx.lineTo(t.x1,t.y1); ctx.stroke();
+  }
+
+  for(const u of units){
+    const x=u.px+(u.x-u.px)*alpha, y=u.py+(u.y-u.py)*alpha;
+
+    if(u.selected){
+      ctx.strokeStyle="rgba(230,165,61,.9)"; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.arc(x,y,UNIT_R+4,0,7); ctx.stroke();
+    }
+    // body by faction
+    if(u.faction===0) ctx.fillStyle=u.selected?"#f0ead9":"#d7dcda";
+    else              ctx.fillStyle="#cf6b58";
+    ctx.beginPath(); ctx.arc(x,y,UNIT_R,0,7); ctx.fill();
+    ctx.strokeStyle="rgba(9,13,16,.9)"; ctx.lineWidth=1.4; ctx.stroke();
+
+    // heading tick while moving
+    const sp=Math.hypot(u.vx,u.vy);
+    if(sp>4){
+      const nx=u.vx/sp, ny=u.vy/sp;
+      ctx.strokeStyle=u.faction===0
+        ?(u.selected?"rgba(230,165,61,.95)":"rgba(120,138,146,.9)")
+        :"rgba(207,107,88,.9)";
+      ctx.lineWidth=1.6; ctx.beginPath();
+      ctx.moveTo(x+nx*(UNIT_R-1),y+ny*(UNIT_R-1));
+      ctx.lineTo(x+nx*(UNIT_R+6),y+ny*(UNIT_R+6)); ctx.stroke();
+    }
+    // hp bar when hurt
+    if(u.hp<u.maxHp-0.01){
+      const f=Math.max(0,u.hp/u.maxHp), bw=16;
+      ctx.fillStyle="rgba(0,0,0,.55)"; ctx.fillRect(x-bw/2,y-UNIT_R-8,bw,3);
+      ctx.fillStyle = f>0.5?"#8bbf6a":f>0.25?"#e6a53d":"#cf5a4a";
+      ctx.fillRect(x-bw/2,y-UNIT_R-8,bw*f,3);
+    }
+  }
+
+  // left-drag selection marquee
+  if(sel.active){
+    const rx=Math.min(sel.x0,sel.x1),ry=Math.min(sel.y0,sel.y1);
+    const rw=Math.abs(sel.x1-sel.x0),rh=Math.abs(sel.y1-sel.y0);
+    ctx.fillStyle="rgba(230,165,61,.10)"; ctx.fillRect(rx,ry,rw,rh);
+    ctx.strokeStyle="rgba(230,165,61,.8)"; ctx.lineWidth=1; ctx.strokeRect(rx+.5,ry+.5,rw,rh);
+  }
+  // right-drag order area (dashed)
+  if(order.active){
+    const rx=Math.min(order.x0,order.x1),ry=Math.min(order.y0,order.y1);
+    const rw=Math.abs(order.x1-order.x0),rh=Math.abs(order.y1-order.y0);
+    ctx.setLineDash([6,4]); ctx.strokeStyle="rgba(230,165,61,.85)"; ctx.lineWidth=1.2;
+    ctx.strokeRect(rx+.5,ry+.5,rw,rh); ctx.setLineDash([]);
+  }
+}
+
+// ====================================================================
+// INPUT
+// ====================================================================
+const sel={active:false,x0:0,y0:0,x1:0,y1:0,moved:false};
+const order={active:false,x0:0,y0:0,x1:0,y1:0,moved:false};
+
+function pt(e){const r=cv.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top};}
+function unitAt(px,py,pad=6){
+  let best=null,bd=1e9;
+  for(const u of units){ if(u.faction!==0) continue;
+    const d=Math.hypot(u.x-px,u.y-py); if(d<UNIT_R+pad&&d<bd){bd=d;best=u;} }
+  return best;
+}
+
+cv.addEventListener("mousedown",(e)=>{
+  const p=pt(e);
+  if(e.button===0){ sel.active=true; sel.moved=false; sel.x0=sel.x1=p.x; sel.y0=sel.y1=p.y; }
+  else if(e.button===2){ order.active=true; order.moved=false; order.x0=order.x1=p.x; order.y0=order.y1=p.y; }
+});
+addEventListener("mousemove",(e)=>{
+  const p=pt(e);
+  if(sel.active){ sel.x1=p.x; sel.y1=p.y; if(Math.hypot(p.x-sel.x0,p.y-sel.y0)>4) sel.moved=true; }
+  if(order.active){ order.x1=p.x; order.y1=p.y; if(Math.hypot(p.x-order.x0,p.y-order.y0)>6) order.moved=true; }
+});
+addEventListener("mouseup",(e)=>{
+  const p=pt(e);
+  if(e.button===0 && sel.active){
+    sel.active=false;
+    if(sel.moved){
+      const rx=Math.min(sel.x0,sel.x1),ry=Math.min(sel.y0,sel.y1);
+      const rw=Math.abs(sel.x1-sel.x0),rh=Math.abs(sel.y1-sel.y0), add=e.shiftKey;
+      for(const u of units){ if(u.faction!==0) continue;
+        const inside=u.x>=rx&&u.x<=rx+rw&&u.y>=ry&&u.y<=ry+rh;
+        u.selected=add?(u.selected||inside):inside; }
+    }else{
+      const u=unitAt(sel.x0,sel.y0);
+      if(!e.shiftKey) units.forEach(x=>x.selected=false);
+      if(u) u.selected=e.shiftKey?!u.selected:true;
+    }
+  }
+  if(e.button===2 && order.active){
+    order.active=false;
+    issueOrder(order.moved, order.x0,order.y0,p.x,p.y);
+  }
+});
+cv.addEventListener("contextmenu",(e)=>e.preventDefault());
+
+// issue the active verb to selected units, as a point or an area
+function issueOrder(isArea,x0,y0,x1,y1){
+  const chosen=units.filter(u=>u.faction===0&&u.selected);
+  if(chosen.length===0) return;
+  if(!isArea){
+    for(const u of chosen) setOrder(u,activeVerb,x1,y1);   // all to one point
+    return;
+  }
+  // AREA: lay N slots across the rectangle, aspect-matched, then assign
+  const rx=Math.min(x0,x1),ry=Math.min(y0,y1),rw=Math.abs(x1-x0)||1,rh=Math.abs(y1-y0)||1;
+  const N=chosen.length;
+  let cols=Math.max(1,Math.round(Math.sqrt(N*rw/rh))); cols=Math.min(cols,N);
+  const rows=Math.ceil(N/cols);
+  const slots=[];
+  for(let r=0;r<rows&&slots.length<N;r++)
+    for(let c=0;c<cols&&slots.length<N;c++)
+      slots.push({x:rx+(c+0.5)*rw/cols, y:ry+(r+0.5)*rh/rows});
+  // greedy nearest assignment keeps the formation from tangling
+  const pool=chosen.slice();
+  for(const sl of slots){
+    let bi=0,bd=1e18;
+    for(let k=0;k<pool.length;k++){const d=Math.hypot(pool[k].x-sl.x,pool[k].y-sl.y);if(d<bd){bd=d;bi=k;}}
+    setOrder(pool[bi],activeVerb,sl.x,sl.y); pool.splice(bi,1);
+  }
+}
+
+// verb selection (buttons + number keys)
+function setVerb(v){
+  activeVerb=v;
+  document.querySelectorAll("#verbs button").forEach(b=>b.classList.toggle("on",b.dataset.verb===v));
+  document.getElementById("h-verb").textContent=VERB[v].name;
+}
+document.querySelectorAll("#verbs button").forEach(b=>b.onclick=()=>setVerb(b.dataset.verb));
+
+addEventListener("keydown",(e)=>{
+  if(e.key==="1") setVerb("MOVE"); else if(e.key==="2") setVerb("ATTACK");
+  else if(e.key==="3") setVerb("HOLD"); else if(e.key==="4") setVerb("WITHDRAW");
+  else if(e.key==="a"||e.key==="A") units.forEach(u=>{if(u.faction===0)u.selected=true;});
+  else if(e.key==="Escape") units.forEach(u=>u.selected=false);
+  else if(e.key==="r"||e.key==="R") initWorld();
+});
+
+// test tools
+document.getElementById("b-all").onclick=()=>units.forEach(u=>{if(u.faction===0)u.selected=true;});
+document.getElementById("b-reset").onclick=()=>initWorld();
+document.getElementById("b-grid").onclick=(e)=>{showGrid=!showGrid;e.target.textContent="Grid: "+(showGrid?"on":"off");};
+// send one hostile sprinting across the field — tests that attack-movers
+// break off at their leash instead of chasing it forever
+document.getElementById("b-bait").onclick=()=>{
+  const reds=units.filter(u=>u.faction===1); if(!reds.length) return;
+  const r=reds[Math.floor(Math.random()*reds.length)];
+  setOrder(r,"WITHDRAW", W*0.05, r.y);
+};
+// order the whole hostile force to advance on the player line
+document.getElementById("b-redatk").onclick=()=>{
+  for(const u of units) if(u.faction===1) setOrder(u,"ATTACK", W*0.24, H*0.5);
+};
+
+// ====================================================================
+// MAIN LOOP
+// ====================================================================
+let acc=0,last=performance.now(),simCount=0,hzWin=performance.now(),hzShown=SIM_HZ;
+function frame(now){
+  let dtR=(now-last)/1000; last=now; if(dtR>MAX_STEP) dtR=MAX_STEP;
+  acc+=dtR;
+  while(acc>=DT){ step(DT); acc-=DT; simCount++; }
+  render(acc/DT); hud(now);
+  requestAnimationFrame(frame);
+}
+function hud(now){
+  if(now-hzWin>=500){ hzShown=Math.round(simCount/((now-hzWin)/1000)); simCount=0; hzWin=now; }
+  let selN=0,blue=0,red=0;
+  for(const u of units){ if(u.selected)selN++; if(u.faction===0)blue++; else red++; }
+  document.getElementById("h-hz").textContent=hzShown+" Hz";
+  document.getElementById("h-sel").textContent=selN;
+  document.getElementById("h-blue").textContent=blue;
+  document.getElementById("h-red").textContent=red;
+}
+
+// boot
+resize(); initWorld(); setVerb("MOVE"); requestAnimationFrame(frame);
+</script>

@@ -1,0 +1,570 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Command — Phase 5 · Troop Types</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+  :root{
+    --ground:#0e1418; --panel:rgba(9,13,16,.82); --panel-line:rgba(150,178,187,.16);
+    --hud:#a6bcc3; --hud-dim:#63767d; --accent:#e6a53d; --accent-dim:rgba(230,165,61,.28);
+    --ink:#dfe4e2; --hostile:#cf6b58; --warn:#cf5a4a; --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--ground);overflow:hidden;-webkit-user-select:none;user-select:none;touch-action:none;}
+  canvas{display:block;position:fixed;inset:0;}
+  .card{background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;backdrop-filter:blur(3px);font-family:var(--mono);}
+  .card .title{color:var(--accent);letter-spacing:.28em;font-size:11px;font-weight:600;}
+  .card .sub{color:var(--hud-dim);letter-spacing:.14em;font-size:9.5px;text-transform:uppercase;}
+  .drow{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;background:transparent;border:none;border-radius:4px;color:var(--hud);font-family:var(--mono);font-size:11.5px;padding:5px 6px;cursor:pointer;text-align:left;}
+  .drow:hover{background:rgba(230,165,61,.08);}
+  .drow:focus-visible{outline:2px solid var(--accent);outline-offset:-1px;}
+  .drow .k{color:var(--hud-dim);letter-spacing:.04em;} .drow .dv{color:var(--accent);}
+  .dim .drow{opacity:.4;pointer-events:none;} .dim .drow .dv{color:var(--hud-dim);}
+
+  #hud{position:fixed;top:14px;left:14px;z-index:5;color:var(--hud);padding:11px 13px 10px;min-width:206px;font-size:12px;line-height:1.5;}
+  #hud .title{margin-bottom:2px;} #hud .sub{margin-bottom:9px;}
+  #hud .row{display:flex;justify-content:space-between;gap:18px;}
+  #hud .k{color:var(--hud-dim);} #hud .v{color:var(--hud);font-variant-numeric:tabular-nums;}
+  #hud .v.amber{color:var(--accent);} #hud .v.red{color:var(--hostile);} #hud .v.warn{color:var(--warn);}
+  #hud hr{border:none;border-top:1px solid var(--panel-line);margin:8px 0 7px;}
+  #hud .cbar{height:3px;background:rgba(150,178,187,.16);border-radius:2px;margin:5px 2px 1px;overflow:hidden;}
+  #hud .cbar > i{display:block;height:100%;background:var(--accent);width:100%;}
+
+  #doc{position:fixed;top:14px;right:14px;z-index:5;color:var(--hud);padding:11px 12px 12px;width:190px;font-size:12px;}
+  #doc .title{margin-bottom:2px;} #doc .sub{margin-bottom:9px;}
+  #packet{position:fixed;right:14px;top:206px;z-index:5;color:var(--hud);padding:11px 12px 12px;width:190px;font-size:12px;}
+  #packet .title{margin-bottom:2px;} #packet .sub{margin-bottom:9px;}
+  #packet .drow.arm .dv{color:#101418;background:var(--accent);border-radius:3px;padding:0 5px;}
+
+  #groups{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:5;display:flex;gap:8px;font-family:var(--mono);flex-wrap:wrap;max-width:60vw;justify-content:center;}
+  .chip{background:var(--panel);border:1px solid var(--panel-line);border-radius:6px;padding:7px 9px 6px;min-width:84px;cursor:pointer;backdrop-filter:blur(3px);}
+  .chip:hover{border-color:var(--accent-dim);} .chip.on{border-color:var(--accent);}
+  .chip .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+  .chip .lab{color:var(--ink);font-weight:600;font-size:12px;letter-spacing:.04em;}
+  .chip.on .lab{color:var(--accent);}
+  .chip .cnt{color:var(--hud-dim);font-size:10px;font-variant-numeric:tabular-nums;}
+  .chip .meta{display:flex;justify-content:space-between;gap:8px;margin-top:3px;color:var(--hud-dim);font-size:9.5px;}
+  .chip .str{height:3px;background:rgba(150,178,187,.16);border-radius:2px;margin-top:5px;overflow:hidden;}
+  .chip .str > i{display:block;height:100%;background:#8bbf6a;}
+  .chip .flag{color:var(--accent);}
+  .chip.hostile .lab{color:var(--hostile);} .chip.hostile.on{border-color:var(--hostile);}
+
+  #cmdwin{position:fixed;top:96px;left:50%;transform:translateX(-50%);z-index:6;display:flex;align-items:center;gap:12px;padding:8px 12px;font-family:var(--mono);font-size:12px;color:var(--ink);}
+  #cmdwin .lab{color:var(--accent);letter-spacing:.22em;font-size:10px;font-weight:600;}
+  #cmdwin .pts{color:var(--hud);font-variant-numeric:tabular-nums;}
+  #cmdwin button{font-family:inherit;font-size:11px;color:#101418;background:var(--accent);border:none;border-radius:5px;padding:6px 11px;cursor:pointer;font-weight:600;}
+  #cmdwin[hidden]{display:none;}
+
+  #legend{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:5;display:flex;gap:14px;padding:7px 12px;font-family:var(--mono);font-size:10.5px;color:var(--hud-dim);align-items:center;}
+  #legend b{color:var(--hud);font-weight:500;}
+  #legend svg{vertical-align:-2px;margin-right:4px;}
+  @media (max-width:760px){#legend{display:none;}}
+
+  .bar{position:fixed;z-index:5;display:flex;gap:6px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;align-items:center;}
+  #verbs{bottom:52px;left:14px;} #acts{bottom:14px;left:14px;}
+  .bar .lbl{color:var(--hud-dim);letter-spacing:.12em;font-size:9.5px;text-transform:uppercase;margin-right:4px;}
+  .bar button{font-family:inherit;font-size:11px;letter-spacing:.03em;color:var(--hud);background:var(--panel);border:1px solid var(--panel-line);border-radius:5px;padding:6px 10px;cursor:pointer;}
+  .bar button:hover{border-color:var(--accent-dim);color:var(--ink);}
+  .bar button:active{transform:translateY(1px);}
+  .bar button:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .bar button.on{color:#101418;background:var(--accent);border-color:var(--accent);font-weight:600;}
+
+  #keys{position:fixed;bottom:14px;right:14px;z-index:5;font-family:var(--mono);font-size:10.5px;color:var(--hud-dim);text-align:right;line-height:1.7;letter-spacing:.02em;}
+  #keys b{color:var(--hud);font-weight:500;}
+  @media (max-width:1040px){#keys{display:none;}}
+</style>
+
+<canvas id="c"></canvas>
+
+<div id="hud" class="card">
+  <div class="title">SITUATION MAP</div>
+  <div class="sub">Phase 5 — troop types</div>
+  <div class="row"><span class="k">sim</span><span class="v" id="h-hz">— Hz</span></div>
+  <div class="row"><span class="k">order</span><span class="v amber" id="h-verb">Move</span></div>
+  <div class="row"><span class="k">selected</span><span class="v" id="h-sel">0</span></div>
+  <hr>
+  <div class="row"><span class="k">mode</span><span class="v amber" id="h-mode">continuous</span></div>
+  <div class="row"><span class="k">command</span><span class="v" id="h-cmd">5 / 5</span></div>
+  <div class="cbar"><i id="h-cbar"></i></div>
+  <hr>
+  <div class="row"><span class="k">friendly</span><span class="v" id="h-blue">0</span></div>
+  <div class="row"><span class="k">hostile</span><span class="v red" id="h-red">0</span></div>
+</div>
+
+<div id="groups"></div>
+<div id="cmdwin" class="card" hidden>
+  <span class="lab">COMMAND WINDOW</span><span class="pts" id="cw-pts">4 pts</span>
+  <button id="cw-resume">Resume ▶ (space)</button>
+</div>
+
+<div id="doc" class="card dim">
+  <div class="title">DOCTRINE</div>
+  <div class="sub" id="d-scope">no group</div>
+  <button class="drow" data-k="fire"><span class="k">fire</span><span class="dv" id="d-fire">—</span></button>
+  <button class="drow" data-k="leash"><span class="k">pursuit</span><span class="dv" id="d-leash">—</span></button>
+  <button class="drow" data-k="spacing"><span class="k">spacing</span><span class="dv" id="d-spacing">—</span></button>
+  <button class="drow" data-k="priority"><span class="k">target</span><span class="dv" id="d-priority">—</span></button>
+</div>
+
+<div id="packet" class="card dim">
+  <div class="title">ORDER PACKET</div>
+  <div class="sub" id="p-scope">no group</div>
+  <button class="drow" data-p="trig"><span class="k">trigger</span><span class="dv" id="p-trig">—</span></button>
+  <button class="drow" data-p="follow"><span class="k">then</span><span class="dv" id="p-follow">—</span></button>
+  <button class="drow" id="p-rally"><span class="k">rally</span><span class="dv" id="p-rallyv">—</span></button>
+</div>
+
+<div class="bar" id="verbs">
+  <span class="lbl">order</span>
+  <button data-verb="MOVE" class="on">Move</button>
+  <button data-verb="ATTACK">Attack-move</button>
+  <button data-verb="HOLD">Hold</button>
+  <button data-verb="WITHDRAW">Withdraw</button>
+</div>
+
+<div class="bar" id="acts">
+  <span class="lbl">test</span>
+  <button id="b-mode">Mode: continuous</button>
+  <button id="b-group">Group (Ctrl+G)</button>
+  <button id="b-all">Select all</button>
+  <button id="b-redatk">Red attacks</button>
+  <button id="b-reset">Reset</button>
+</div>
+
+<div id="legend" class="card"></div>
+
+<div id="keys">
+  <div><b>Drag</b> select · <b>Dbl-click</b> / chip select group · <b>Ctrl+G</b> group</div>
+  <div><b>Right-click / drag</b> order to point / area · <b>1-4</b> order type</div>
+  <div><b>Space</b> pause / resume · a group marches at its slowest troop's pace</div>
+</div>
+
+<script>
+"use strict";
+/* ====================================================================
+   COMMAND — Phase 5 : Troop types and cohesion
+
+   One generic token becomes four classes with distinct shapes and a
+   rock-paper-scissors of roles, plus a static barricade:
+
+     light infantry  △  fast, fragile skirmishers
+     heavy infantry  ▢  slow, armoured — the line; braces against cavalry
+     bowmen          ◇  ranged; punish foot at distance, fold in melee
+     cavalry         ▷  fastest; charge bonus on contact, ruins loose
+                         archers and routers, but breaks on a braced line
+     barricade       ▧  immovable, armoured, blocks movement (destructible)
+
+   The barricade class is implemented (static, high-armour, participates in
+   separation so units bank up against it, and can be destroyed) but is not
+   placed in the default scenario: without pathfinding, units only slide
+   around an obstacle rather than route past it, so meaningful fortifications
+   — cover, line-of-sight, chokepoints — wait for terrain in the next phase.
+
+   Combat splits into ranged and melee. Cavalry that reaches contact from
+   speed lands a CHARGE bonus — unless it hits braced heavy infantry (holding
+   and stationary), which negates the charge, blunts the blow, recoils the
+   horse, and lets the spearmen strike back hard. Armour reduces incoming
+   damage. These few rules produce the match-up triangle without special-casing
+   each pairing.
+
+   Cohesion: a group marches at the pace of its SLOWEST member, so cavalry
+   grouped with foot will not string out ahead. Want the horse to run? Put
+   them in their own group — organisation is the lever. (Marching formation
+   that holds shape through turns is still deferred to the final phase.)
+   ==================================================================== */
+
+const SIM_HZ=20, DT=1/SIM_HZ, MAX_STEP=0.25;
+const ARRIVE_RAD=46, SEP_SPEED=52, STEER_GAIN=0.28, REST_EPS=2.2, SEP_PAD=6, MELEE_GAP=2, SLOT_SP=26;
+const SENSE=160, DMG_VAR=0.22, TRACER_T=0.10;
+const BASE_MORALE=0.15, ROUT_URG=1.4;
+const CHARGE_MULT=2.4, SPEAR_BONUS=1.8, CAV_RECOIL=15, BRACE_SPEED=10;
+
+// ---- troop classes (one table, so a different era is a retune) ------
+const CLASS={
+  light:{name:"Light Inf", shape:"tri",  r:6,   speed:102, hp:70,  armor:0.05, melee:{dmg:7, cd:0.70}},
+  heavy:{name:"Heavy Inf", shape:"sq",   r:7.5, speed:58,  hp:145, armor:0.50, melee:{dmg:11,cd:0.90}},
+  bow:  {name:"Bowmen",    shape:"dia",  r:6.5, speed:74,  hp:70,  armor:0.10, ranged:{dmg:9,cd:1.00,range:150}, melee:{dmg:4,cd:0.90}},
+  cav:  {name:"Cavalry",   shape:"arw",  r:8,   speed:140, hp:120, armor:0.20, melee:{dmg:12,cd:0.80}},
+  wall: {name:"Barricade", shape:"blk",  r:11,  speed:0,   hp:400, armor:0.60, static:true},
+};
+const CLASS_ORDER=["light","heavy","bow","cav","wall"];
+
+const CMD={ continuous:{rate:0.6, cap:5}, phased:{interval:12, N:4} };
+const COST_ORDER=1, COST_DOCTRINE=1;
+
+const VERB={
+  MOVE:     {name:"Move",        leash:0,   fire:"RETURN", stopToFight:false, urgency:1.00},
+  ATTACK:   {name:"Attack-move", leash:95,  fire:"FREE",   stopToFight:true,  urgency:1.00},
+  HOLD:     {name:"Hold",        leash:70,  fire:"FREE",   stopToFight:true,  urgency:1.00},
+  WITHDRAW: {name:"Withdraw",    leash:0,   fire:"HOLD",   stopToFight:false, urgency:1.35},
+};
+const VERB_SHORT={MOVE:"Move",ATTACK:"Atk",HOLD:"Hold",WITHDRAW:"Wdr"};
+const D_OPTS={fire:["verb","hold","return","free"],leash:["short","normal","long"],spacing:["tight","normal","loose"],priority:["nearest","weakest"]};
+const D_LABEL={fire:{verb:"by verb",hold:"hold fire",return:"return fire",free:"fire at will"},leash:{short:"short",normal:"normal",long:"long"},spacing:{tight:"tight",normal:"normal",loose:"loose"},priority:{nearest:"nearest",weakest:"weakest"}};
+const LEASH_MULT={short:0.5,normal:1,long:1.9}, SPACE_MULT={tight:0.62,normal:1,loose:1.7}, FIRE_MAP={hold:"HOLD",return:"RETURN",free:"FREE"};
+const DEFAULT_DOC={fire:"verb",leash:"normal",spacing:"normal",priority:"nearest"};
+const TRIG=[{type:"none",lbl:"none"},{type:"strength",pct:50,lbl:"strength < 50%"},{type:"strength",pct:40,lbl:"strength < 40%"},{type:"strength",pct:25,lbl:"strength < 25%"},{type:"arrived",lbl:"on arrival"},{type:"timer",sec:10,lbl:"after 10 s"}];
+const FOLLOW=[{v:"WITHDRAW",lbl:"withdraw"},{v:"HOLD",lbl:"hold"},{v:"ATTACK",lbl:"attack-move"},{v:"MOVE",lbl:"move"}];
+
+let units=[], tracers=[], groups=new Map(), nextId=1, nextGid=1;
+let showGrid=true, activeVerb="MOVE", settingRally=false;
+let mode="continuous", tokens=CMD.continuous.cap, phase={timer:CMD.phased.interval,windowOpen:false,points:0}, manualPause=false, blockUntil=0;
+const isPaused=()=> manualPause || (mode==="phased" && phase.windowOpen);
+
+function trySpend(cost){
+  if(mode==="free") return true;
+  if(mode==="continuous"){ if(tokens>=cost){ tokens-=cost; return true; } return blocked(); }
+  if(mode==="phased"){ if(phase.windowOpen && phase.points>=cost){ phase.points-=cost; return true; } return blocked(); }
+  return true;
+}
+function blocked(){ blockUntil=performance.now()+450; return false; }
+function setMode(m){ mode=m; manualPause=false; if(m==="continuous") tokens=CMD.continuous.cap;
+  if(m==="phased"){ phase.windowOpen=false; phase.timer=CMD.phased.interval; phase.points=0; }
+  document.getElementById("b-mode").textContent="Mode: "+m; document.getElementById("h-mode").textContent=m; }
+function resumePhase(){ if(mode==="phased" && phase.windowOpen){ phase.windowOpen=false; phase.timer=CMD.phased.interval; phase.points=0; } }
+
+function makeGroup(label,faction){ return { id:nextGid++, label, faction, doctrine:{...DEFAULT_DOC},
+  order:{verb:"MOVE",active:false}, trigIdx:0, followIdx:0, trig:{t:0,fired:false}, followUp:{rallyX:0,rallyY:0,hasRally:false}, strength0:0 }; }
+function makeUnit(x,y,faction,cls){ const c=CLASS[cls];
+  return { id:nextId++, faction, cls, r:c.r, groupId:0, x,y, px:x,py:y, vx:0,vy:0, hp:c.hp, maxHp:c.hp,
+    facing:faction===0?0:Math.PI, verb:"MOVE", postX:x,postY:y,hasPost:false, anchorX:x,anchorY:y,hasAnchor:false,
+    atPost:false,routing:false, cooldown:0, inMeleePrev:false,inMeleeNow:false, selected:false }; }
+const groupOf=(u)=>groups.get(u.groupId);
+const docOf=(u)=>{const g=groupOf(u);return g?g.doctrine:DEFAULT_DOC;};
+const members=(g)=>units.filter(u=>u.groupId===g.id);
+
+function eff(u){ const d=docOf(u), v=VERB[u.verb];
+  return { fire:d.fire==="verb"?v.fire:FIRE_MAP[d.fire], leash:v.leash*LEASH_MULT[d.leash], stop:v.stopToFight, urg:v.urgency }; }
+function setOrder(u,verb,x,y){ if(CLASS[u.cls].static) return;
+  u.verb=verb; u.postX=x; u.postY=y; u.hasPost=true; u.atPost=false; u.routing=false;
+  if(verb==="HOLD"){ u.anchorX=x; u.anchorY=y; u.hasAnchor=true; } else u.hasAnchor=false; }
+const isBraced=(u)=> u.cls==="heavy" && Math.hypot(u.vx,u.vy)<BRACE_SPEED;
+
+function initWorld(){
+  units=[]; tracers=[]; groups=new Map(); nextId=1; nextGid=1;
+  const spawn=(g,cx,cy,cls,n,spread=26)=>{ for(let i=0;i<n;i++){ const a=Math.random()*6.28, r=Math.random()*spread;
+    const u=makeUnit(cx+Math.cos(a)*r, cy+Math.sin(a)*r, g.faction, cls); u.groupId=g.id; if(g.faction===1) setOrder(u,"HOLD",u.x,u.y); units.push(u); } };
+  const A=makeGroup("Foot",0); groups.set(A.id,A); spawn(A, W*0.22, H*0.50, "heavy", 6);
+  const B=makeGroup("Bows",0); groups.set(B.id,B); spawn(B, W*0.13, H*0.50, "bow", 5);
+  const C=makeGroup("Horse",0);groups.set(C.id,C); spawn(C, W*0.20, H*0.74, "cav", 4);
+  const E=makeGroup("OpFor",1);groups.set(E.id,E);
+  spawn(E, W*0.80, H*0.50, "heavy", 6, 30); spawn(E, W*0.90, H*0.50, "bow", 4, 26); spawn(E, W*0.80, H*0.26, "cav", 3, 22);
+  buildChips();
+}
+
+const cv=document.getElementById("c"), ctx=cv.getContext("2d");
+let W=0,H=0,DPR=1;
+function resize(){ DPR=Math.min(window.devicePixelRatio||1,2); W=innerWidth; H=innerHeight; cv.width=Math.floor(W*DPR); cv.height=Math.floor(H*DPR); ctx.setTransform(DPR,0,0,DPR,0,0); }
+addEventListener("resize",resize);
+
+function chooseTarget(u){ const pri=docOf(u).priority; let best=null,bs=Infinity;
+  for(const o of units){ if(o.faction===u.faction) continue;   // static barricades are valid targets
+    const dx=o.x-u.x, dy=o.y-u.y, d2=dx*dx+dy*dy; if(d2>SENSE*SENSE) continue;
+    const s=pri==="weakest"?o.hp*1e6+d2:d2; if(s<bs){ bs=s; best=o; } }
+  return best; }
+
+// preferred engagement distance for u against e (ranged reach or contact)
+function preferredRange(u,e){ const c=CLASS[u.cls]; return c.ranged ? c.ranged.range : (u.r+e.r+MELEE_GAP); }
+function resolveHit(u,e,dd){
+  const c=CLASS[u.cls], meleeReach=u.r+e.r+MELEE_GAP;
+  let dmg, cd;
+  if(dd<=meleeReach && c.melee){ dmg=c.melee.dmg; cd=c.melee.cd;
+    if(u.cls==="cav" && !u.inMeleePrev){                 // charge on fresh contact
+      if(e.cls==="heavy" && isBraced(e)){ u.hp-=CAV_RECOIL; dmg*=0.6; }   // breaks on the line
+      else dmg*=CHARGE_MULT; }
+    if(u.cls==="heavy" && e.cls==="cav" && isBraced(u)) dmg*=SPEAR_BONUS; // spears set against horse
+    u.inMeleeNow=true; }
+  else if(c.ranged){ dmg=c.ranged.dmg; cd=c.ranged.cd;
+    tracers.push({x0:u.x,y0:u.y,x1:e.x,y1:e.y,t:TRACER_T,f:u.faction}); }
+  else return 0;
+  dmg *= (1-CLASS[e.cls].armor) * (1+(Math.random()*2-1)*DMG_VAR);
+  e.hp -= dmg; return cd;
+}
+
+// ====================================================================
+// SIMULATION STEP
+// ====================================================================
+function step(dt){
+  if(mode==="continuous") tokens=Math.min(CMD.continuous.cap, tokens+CMD.continuous.rate*dt);
+  else if(mode==="phased" && !phase.windowOpen){ phase.timer-=dt; if(phase.timer<=0){ phase.windowOpen=true; phase.points=CMD.phased.N; } }
+
+  const n=units.length;
+  // group march pace = slowest present class (cohesion)
+  const pace={};
+  for(const u of units){ if(u.routing) continue; const sp=CLASS[u.cls].speed; if(sp<=0) continue;
+    if(pace[u.groupId]===undefined || sp<pace[u.groupId]) pace[u.groupId]=sp; }
+
+  for(const u of units){ u.px=u.x; u.py=u.y; if(u.cooldown>0) u.cooldown-=dt; u.inMeleeNow=false; }
+
+  const mtx=new Float64Array(n), mty=new Float64Array(n), sepM=new Float64Array(n), topV=new Float64Array(n);
+  const arriveOff=new Uint8Array(n);
+
+  for(let i=0;i<n;i++){
+    const u=units[i]; const c=CLASS[u.cls]; sepM[i]=SPACE_MULT[docOf(u).spacing];
+    if(c.static){ mtx[i]=u.x; mty[i]=u.y; topV[i]=0; arriveOff[i]=1; continue; }
+    const es=eff(u), own=c.speed;
+    if(u.hp < u.maxHp*BASE_MORALE) u.routing=true;
+
+    let tx,ty, engaging=false;
+    if(u.routing){ tx=u.faction===0?44:W-44; ty=u.y; u.atPost=false; topV[i]=own*ROUT_URG; }
+    else{
+      tx=u.hasPost?u.postX:u.x; ty=u.hasPost?u.postY:u.y;
+      const e=chooseTarget(u);
+      if(e){
+        const dx=e.x-u.x, dy=e.y-u.y, dd=Math.hypot(dx,dy), pref=preferredRange(u,e), inRange=dd<=pref;
+        let will=false;
+        if(es.fire==="RETURN") will=inRange;
+        else if(es.fire==="FREE"){ if(!u.hasAnchor && u.verb==="ATTACK"){ u.anchorX=u.x;u.anchorY=u.y;u.hasAnchor=true; }
+          const ax=u.hasAnchor?u.anchorX:u.x, ay=u.hasAnchor?u.anchorY:u.y; will=Math.hypot(e.x-ax,e.y-ay)<=es.leash+pref; }
+        if(will){ engaging=true;
+          if(inRange){ if(u.cooldown<=0){ const cd=resolveHit(u,e,dd); if(cd) u.cooldown=cd; } if(es.stop){ tx=u.x;ty=u.y; } }
+          else{ const ax=u.hasAnchor?u.anchorX:u.x, ay=u.hasAnchor?u.anchorY:u.y; const adx=e.x-ax, ady=e.y-ay, ad=Math.hypot(adx,ady);
+            if(ad<=es.leash){ tx=e.x;ty=e.y; } else { tx=ax+adx/ad*es.leash; ty=ay+ady/ad*es.leash; } } }
+      }
+      if(!engaging && u.verb==="ATTACK") u.hasAnchor=false;
+      // top speed: engage/charge at own speed; march at group pace (cohesion)
+      topV[i] = engaging ? own*es.urg : Math.min(own, pace[u.groupId]||own)*es.urg;
+      if(!engaging){ const dp=Math.hypot((u.hasPost?u.postX:u.x)-u.x,(u.hasPost?u.postY:u.y)-u.y);
+        if(u.atPost){ if(dp>ARRIVE_RAD*1.2) u.atPost=false; } else if(dp<ARRIVE_RAD*0.5 && Math.hypot(u.vx,u.vy)<REST_EPS*3) u.atPost=true;
+        if(u.atPost) arriveOff[i]=1; } else u.atPost=false;
+    }
+    mtx[i]=tx; mty[i]=ty;
+  }
+
+  const dvx=new Float64Array(n), dvy=new Float64Array(n);
+  for(let i=0;i<n;i++){ const u=units[i]; if(CLASS[u.cls].static){ dvx[i]=0;dvy[i]=0; continue; }
+    const top=topV[i]; let ax=0,ay=0;
+    if(!arriveOff[i]){ const dx=mtx[i]-u.x, dy=mty[i]-u.y, d=Math.hypot(dx,dy);
+      if(d>0.0001){ let sp=top; if(d<ARRIVE_RAD) sp=top*(d/ARRIVE_RAD); ax+=dx/d*sp; ay+=dy/d*sp; } }
+    let sx=0,sy=0;
+    for(let j=0;j<n;j++){ if(j===i) continue; const o=units[j], ox=u.x-o.x, oy=u.y-o.y, o2=ox*ox+oy*oy;
+      const want=(u.r+o.r+SEP_PAD)*sepM[i]; if(o2<want*want && o2>1e-6){ const od=Math.sqrt(o2), w=(want-od)/want; sx+=ox/od*w; sy+=oy/od*w; } }
+    const sm=Math.hypot(sx,sy); if(sm>1e-6){ const k=Math.min(SEP_SPEED,sm*SEP_SPEED)/sm; ax+=sx*k; ay+=sy*k; }
+    const m=Math.hypot(ax,ay); if(m>Math.max(top,SEP_SPEED)){ const cap=Math.max(top,SEP_SPEED); ax=ax/m*cap; ay=ay/m*cap; }
+    dvx[i]=ax; dvy[i]=ay;
+  }
+  for(let i=0;i<n;i++){ const u=units[i]; if(CLASS[u.cls].static) continue;
+    u.vx+=(dvx[i]-u.vx)*STEER_GAIN; u.vy+=(dvy[i]-u.vy)*STEER_GAIN;
+    const want=Math.hypot(dvx[i],dvy[i]), have=Math.hypot(u.vx,u.vy);
+    if(want<REST_EPS && have<REST_EPS){ u.vx=0; u.vy=0; }
+    u.x+=u.vx*dt; u.y+=u.vy*dt;
+    if(have>4){ u.facing=Math.atan2(u.vy,u.vx); }
+  }
+
+  for(const u of units) u.inMeleePrev=u.inMeleeNow;   // charge bookkeeping
+  evalTriggers(dt);
+  const before=units.length;
+  if(units.some(u=>u.hp<=0)) units=units.filter(u=>u.hp>0);
+  if(units.length!==before) cleanupGroups();
+  for(const t of tracers) t.t-=dt;
+  if(tracers.some(t=>t.t<=0)) tracers=tracers.filter(t=>t.t>0);
+}
+
+function evalTriggers(dt){
+  for(const g of groups.values()){ if(g.faction!==0 || !g.order.active) continue;
+    const T=TRIG[g.trigIdx]; if(T.type==="none" || g.trig.fired) continue;
+    g.trig.t+=dt; const mem=members(g); if(!mem.length) continue;
+    let fire=false;
+    if(T.type==="strength") fire=mem.length/Math.max(1,g.strength0) < T.pct/100;
+    else if(T.type==="arrived") fire=mem.filter(u=>u.atPost).length/mem.length >= 0.8;
+    else if(T.type==="timer") fire=g.trig.t >= T.sec;
+    if(fire){ g.trig.fired=true; const F=FOLLOW[g.followIdx];
+      const rx=g.followUp.hasRally?g.followUp.rallyX:60, ry=g.followUp.hasRally?g.followUp.rallyY:mem.reduce((s,u)=>s+u.y,0)/mem.length;
+      g.order.verb=F.v; for(const u of mem) setOrder(u,F.v,rx,ry); } }
+}
+function cleanupGroups(){ for(const [id,g] of [...groups]) if(members(g).length===0) groups.delete(id); buildChips(); }
+
+// ====================================================================
+// RENDER
+// ====================================================================
+function drawGrid(){ if(!showGrid) return; const minor=44, major=minor*4;
+  ctx.lineWidth=1; ctx.strokeStyle="rgba(150,178,187,.045)"; ctx.beginPath();
+  for(let x=0;x<=W;x+=minor){ctx.moveTo(x+.5,0);ctx.lineTo(x+.5,H);} for(let y=0;y<=H;y+=minor){ctx.moveTo(0,y+.5);ctx.lineTo(W,y+.5);} ctx.stroke();
+  ctx.strokeStyle="rgba(150,178,187,.09)"; ctx.beginPath();
+  for(let x=0;x<=W;x+=major){ctx.moveTo(x+.5,0);ctx.lineTo(x+.5,H);} for(let y=0;y<=H;y+=major){ctx.moveTo(0,y+.5);ctx.lineTo(W,y+.5);} ctx.stroke(); }
+function drawMark(x,y){ ctx.strokeStyle="rgba(230,165,61,.85)"; ctx.lineWidth=1.2; ctx.beginPath();
+  ctx.moveTo(x-7,y);ctx.lineTo(x-2.5,y); ctx.moveTo(x+2.5,y);ctx.lineTo(x+7,y); ctx.moveTo(x,y-7);ctx.lineTo(x,y-2.5); ctx.moveTo(x,y+2.5);ctx.lineTo(x,y+7); ctx.stroke(); ctx.beginPath(); ctx.arc(x,y,2.2,0,7); ctx.stroke(); }
+function drawRally(x,y){ ctx.strokeStyle="rgba(230,165,61,.9)"; ctx.lineWidth=1.3; ctx.beginPath(); ctx.moveTo(x,y-6);ctx.lineTo(x+6,y);ctx.lineTo(x,y+6);ctx.lineTo(x-6,y);ctx.closePath(); ctx.stroke(); ctx.beginPath(); ctx.arc(x,y,1.6,0,7); ctx.fillStyle="rgba(230,165,61,.9)"; ctx.fill(); }
+
+// draw a unit's class shape at (x,y), oriented by facing
+function shapePath(shape,r,f){
+  ctx.beginPath();
+  if(shape==="sq"){ const s=r*0.95; ctx.rect(-s,-s,2*s,2*s); }
+  else if(shape==="dia"){ const s=r*1.15; ctx.moveTo(0,-s);ctx.lineTo(s,0);ctx.lineTo(0,s);ctx.lineTo(-s,0);ctx.closePath(); }
+  else if(shape==="tri"){ const s=r*1.25; ctx.moveTo(Math.cos(f)*s,Math.sin(f)*s);
+    ctx.lineTo(Math.cos(f+2.5)*s,Math.sin(f+2.5)*s); ctx.lineTo(Math.cos(f-2.5)*s,Math.sin(f-2.5)*s); ctx.closePath(); }
+  else if(shape==="arw"){ const s=r*1.5; // elongated arrowhead along facing
+    ctx.moveTo(Math.cos(f)*s,Math.sin(f)*s);
+    ctx.lineTo(Math.cos(f+2.3)*r,Math.sin(f+2.3)*r); ctx.lineTo(Math.cos(f+Math.PI)*r*0.5,Math.sin(f+Math.PI)*r*0.5);
+    ctx.lineTo(Math.cos(f-2.3)*r,Math.sin(f-2.3)*r); ctx.closePath(); }
+  else if(shape==="blk"){ const s=r; ctx.rect(-s,-s,2*s,2*s); }
+}
+function render(alpha){
+  ctx.fillStyle="#0e1418"; ctx.fillRect(0,0,W,H);
+  const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*.2,W/2,H/2,Math.max(W,H)*.72);
+  g.addColorStop(0,"rgba(0,0,0,0)"); g.addColorStop(1,"rgba(4,7,9,.55)"); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); drawGrid();
+
+  const pg=primaryGroup();
+  if(pg && pg.followUp.hasRally && TRIG[pg.trigIdx].type!=="none") drawRally(pg.followUp.rallyX,pg.followUp.rallyY);
+  for(const u of units){ if(u.selected && u.hasPost && !u.routing && !CLASS[u.cls].static){ const d=Math.hypot(u.postX-u.x,u.postY-u.y); if(d>ARRIVE_RAD*0.6) drawMark(u.postX,u.postY); } }
+  for(const t of tracers){ const a=Math.max(0,t.t/TRACER_T); ctx.strokeStyle=t.f===0?`rgba(240,225,200,${a*.9})`:`rgba(230,140,120,${a*.9})`; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(t.x0,t.y0); ctx.lineTo(t.x1,t.y1); ctx.stroke(); }
+
+  for(const u of units){
+    const x=u.px+(u.x-u.px)*alpha, y=u.py+(u.y-u.py)*alpha; const st=CLASS[u.cls].static;
+    if(u.selected){ ctx.strokeStyle="rgba(230,165,61,.9)"; ctx.lineWidth=1.4; ctx.beginPath(); ctx.arc(x,y,u.r+4,0,7); ctx.stroke(); }
+    ctx.save(); ctx.translate(x,y);
+    let fill; if(st) fill="#4a5560"; else if(u.routing) fill=u.faction===0?"#7c8a86":"#8a5a52"; else if(u.faction===0) fill=u.selected?"#f0ead9":"#d7dcda"; else fill="#cf6b58";
+    shapePath(CLASS[u.cls].shape, u.r, u.facing); ctx.fillStyle=fill; ctx.fill();
+    ctx.strokeStyle="rgba(9,13,16,.9)"; ctx.lineWidth=1.4; ctx.stroke();
+    if(u.routing){ ctx.setLineDash([3,3]); ctx.strokeStyle="rgba(230,165,61,.75)"; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,u.r+3,0,7); ctx.stroke(); ctx.setLineDash([]); }
+    // brace tick: heavy infantry set and holding
+    if(u.cls==="heavy" && isBraced(u) && u.verb==="HOLD"){ ctx.strokeStyle="rgba(230,165,61,.5)"; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,u.r+2,0,7); ctx.stroke(); }
+    ctx.restore();
+    if(u.hp<u.maxHp-0.01 && !st){ const f=Math.max(0,u.hp/u.maxHp), bw=16;
+      ctx.fillStyle="rgba(0,0,0,.55)"; ctx.fillRect(x-bw/2,y-u.r-9,bw,3); ctx.fillStyle=f>0.5?"#8bbf6a":f>0.25?"#e6a53d":"#cf5a4a"; ctx.fillRect(x-bw/2,y-u.r-9,bw*f,3); }
+  }
+
+  if(sel.active){ const rx=Math.min(sel.x0,sel.x1),ry=Math.min(sel.y0,sel.y1),rw=Math.abs(sel.x1-sel.x0),rh=Math.abs(sel.y1-sel.y0);
+    ctx.fillStyle="rgba(230,165,61,.10)"; ctx.fillRect(rx,ry,rw,rh); ctx.strokeStyle="rgba(230,165,61,.8)"; ctx.lineWidth=1; ctx.strokeRect(rx+.5,ry+.5,rw,rh); }
+  if(order.active){ const rx=Math.min(order.x0,order.x1),ry=Math.min(order.y0,order.y1),rw=Math.abs(order.x1-order.x0),rh=Math.abs(order.y1-order.y0);
+    ctx.setLineDash([6,4]); ctx.strokeStyle="rgba(230,165,61,.85)"; ctx.lineWidth=1.2; ctx.strokeRect(rx+.5,ry+.5,rw,rh); ctx.setLineDash([]); }
+  if(isPaused()){ ctx.fillStyle="rgba(8,12,15,.28)"; ctx.fillRect(0,0,W,H); }
+}
+
+// ====================================================================
+// INPUT  (unchanged idiom from Phase 4, with formation blocks on point orders)
+// ====================================================================
+const sel={active:false,x0:0,y0:0,x1:0,y1:0,moved:false};
+const order={active:false,x0:0,y0:0,x1:0,y1:0,moved:false};
+function pt(e){const r=cv.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top};}
+function unitAt(px,py,pad=6){ let best=null,bd=1e9; for(const u of units){ if(u.faction!==0||CLASS[u.cls].static) continue; const d=Math.hypot(u.x-px,u.y-py); if(d<u.r+pad&&d<bd){bd=d;best=u;} } return best; }
+
+cv.addEventListener("mousedown",(e)=>{ const p=pt(e);
+  if(e.button===0){ sel.active=true; sel.moved=false; sel.x0=sel.x1=p.x; sel.y0=sel.y1=p.y; }
+  else if(e.button===2){ order.active=true; order.moved=false; order.x0=order.x1=p.x; order.y0=order.y1=p.y; } });
+addEventListener("mousemove",(e)=>{ const p=pt(e);
+  if(sel.active){ sel.x1=p.x; sel.y1=p.y; if(Math.hypot(p.x-sel.x0,p.y-sel.y0)>4) sel.moved=true; }
+  if(order.active){ order.x1=p.x; order.y1=p.y; if(Math.hypot(p.x-order.x0,p.y-order.y0)>6) order.moved=true; } });
+addEventListener("mouseup",(e)=>{ const p=pt(e);
+  if(e.button===0 && sel.active){ sel.active=false;
+    if(sel.moved){ const rx=Math.min(sel.x0,sel.x1),ry=Math.min(sel.y0,sel.y1),rw=Math.abs(sel.x1-sel.x0),rh=Math.abs(sel.y1-sel.y0), add=e.shiftKey;
+      for(const u of units){ if(u.faction!==0||CLASS[u.cls].static) continue; const inside=u.x>=rx&&u.x<=rx+rw&&u.y>=ry&&u.y<=ry+rh; u.selected=add?(u.selected||inside):inside; } }
+    else{ const u=unitAt(sel.x0,sel.y0); if(!e.shiftKey) units.forEach(x=>x.selected=false); if(u) u.selected=e.shiftKey?!u.selected:true; }
+    refreshPanels(); }
+  if(e.button===2 && order.active){ order.active=false; issueOrder(order.moved,order.x0,order.y0,p.x,p.y); } });
+cv.addEventListener("contextmenu",(e)=>e.preventDefault());
+cv.addEventListener("dblclick",(e)=>{ const p=pt(e), u=unitAt(p.x,p.y,8); if(u) selectGroup(groups.get(u.groupId)); });
+
+function issueOrder(isArea,x0,y0,x1,y1){
+  if(settingRally){ const g=primaryGroup(); if(g){ g.followUp.rallyX=x1; g.followUp.rallyY=y1; g.followUp.hasRally=true; } settingRally=false; refreshPanels(); return; }
+  const chosen=units.filter(u=>u.faction===0&&u.selected&&!CLASS[u.cls].static); if(!chosen.length) return;
+  if(!trySpend(COST_ORDER)) return;
+  let rx,ry,rw,rh;
+  if(isArea){ rx=Math.min(x0,x1); ry=Math.min(y0,y1); rw=Math.abs(x1-x0)||1; rh=Math.abs(y1-y0)||1; }
+  else{ const N=chosen.length, cols=Math.ceil(Math.sqrt(N)), rows=Math.ceil(N/cols); // block around the point
+    rw=cols*SLOT_SP; rh=rows*SLOT_SP; rx=x1-rw/2; ry=y1-rh/2; }
+  const N=chosen.length; let cols=Math.max(1,Math.round(Math.sqrt(N*rw/rh))); cols=Math.min(cols,N);
+  const rows=Math.ceil(N/cols), slots=[];
+  for(let r=0;r<rows&&slots.length<N;r++) for(let c=0;c<cols&&slots.length<N;c++) slots.push({x:rx+(c+0.5)*rw/cols,y:ry+(r+0.5)*rh/rows});
+  const pool=chosen.slice();
+  for(const sl of slots){ let bi=0,bd=1e18; for(let k=0;k<pool.length;k++){const d=Math.hypot(pool[k].x-sl.x,pool[k].y-sl.y);if(d<bd){bd=d;bi=k;}} setOrder(pool[bi],activeVerb,sl.x,sl.y); pool.splice(bi,1); }
+  const gids=new Set(chosen.map(u=>u.groupId));
+  for(const gid of gids){ const g=groups.get(gid); if(!g) continue; g.order.verb=activeVerb; g.order.active=true; g.trig.t=0; g.trig.fired=false; g.strength0=members(g).length; }
+  refreshPanels();
+}
+
+function selectedPlayers(){ return units.filter(u=>u.faction===0&&u.selected); }
+function selectedGroups(){ const s=new Set(selectedPlayers().map(u=>u.groupId)); return [...s].map(id=>groups.get(id)).filter(Boolean); }
+function primaryGroup(){ const s=selectedPlayers(); return s.length?groups.get(s[0].groupId):null; }
+function selectGroup(g){ if(!g) return; units.forEach(u=>u.selected=(u.groupId===g.id&&!CLASS[u.cls].static)); refreshPanels(); }
+function nextLabel(){ const used=new Set([...groups.values()].filter(g=>g.faction===0).map(g=>g.label)); let i=1; while(used.has("G"+i)) i++; return "G"+i; }
+function formGroup(){ const s=selectedPlayers(); if(!s.length) return; const g=makeGroup(nextLabel(),0); const src=groups.get(s[0].groupId); if(src) g.doctrine={...src.doctrine};
+  groups.set(g.id,g); for(const u of s) u.groupId=g.id; cleanupGroups(); selectGroup(g); }
+
+let chipEls={};
+function buildChips(){ const host=document.getElementById("groups"); host.innerHTML=""; chipEls={};
+  const gs=[...groups.values()].sort((a,b)=>a.faction-b.faction || a.label.localeCompare(b.label));
+  for(const g of gs){ const el=document.createElement("div"); el.className="chip"+(g.faction===1?" hostile":"");
+    el.innerHTML=`<div class="top"><span class="lab">${g.label}</span><span class="cnt" data-cnt></span></div><div class="meta"><span data-verb></span><span class="flag" data-flag></span></div><div class="str"><i data-bar></i></div>`;
+    el.onclick=()=>selectGroup(g); host.appendChild(el);
+    chipEls[g.id]={el, cnt:el.querySelector("[data-cnt]"), verb:el.querySelector("[data-verb]"), flag:el.querySelector("[data-flag]"), bar:el.querySelector("[data-bar]")}; }
+  updateChips();
+}
+function updateChips(){ const pg=primaryGroup();
+  for(const g of groups.values()){ const c=chipEls[g.id]; if(!c) continue; const mem=members(g), s0=g.strength0||mem.length||1, frac=Math.max(0,Math.min(1,mem.length/s0));
+    c.cnt.textContent=mem.length; c.verb.textContent=g.order.active?VERB_SHORT[g.order.verb]:"—";
+    const T=TRIG[g.trigIdx]; c.flag.textContent=(g.faction===0&&T.type!=="none")?(g.trig.fired?"✓ fired":"⚑ armed"):"";
+    c.bar.style.width=(frac*100)+"%"; c.bar.style.background=frac>0.5?"#8bbf6a":frac>0.25?"#e6a53d":"#cf5a4a"; c.el.classList.toggle("on", pg && pg.id===g.id); } }
+
+const DKEY={fire:"fire",leash:"leash",spacing:"spacing",priority:"priority"};
+function cycleDoctrine(k){ const gs=selectedGroups(); if(!gs.length) return; if(!trySpend(COST_DOCTRINE)) return;
+  const g0=primaryGroup(), opts=D_OPTS[k], cur=g0.doctrine[k], next=opts[(opts.indexOf(cur)+1)%opts.length];
+  for(const g of gs) g.doctrine[k]=next; refreshPanels(); }
+document.querySelectorAll("#doc .drow").forEach(b=>b.onclick=()=>cycleDoctrine(b.dataset.k));
+document.querySelector('[data-p="trig"]').onclick=()=>{ const g=primaryGroup(); if(!g) return; g.trigIdx=(g.trigIdx+1)%TRIG.length; g.trig.fired=false; refreshPanels(); };
+document.querySelector('[data-p="follow"]').onclick=()=>{ const g=primaryGroup(); if(!g) return; g.followIdx=(g.followIdx+1)%FOLLOW.length; refreshPanels(); };
+document.getElementById("p-rally").onclick=()=>{ const g=primaryGroup(); if(!g) return; settingRally=!settingRally; refreshPanels(); };
+
+function refreshPanels(){ updateChips();
+  const gs=selectedGroups(), pg=primaryGroup(), dpanel=document.getElementById("doc");
+  if(!pg){ dpanel.classList.add("dim"); document.getElementById("d-scope").textContent="no group"; for(const k in DKEY) document.getElementById("d-"+k).textContent="—"; }
+  else{ dpanel.classList.remove("dim"); document.getElementById("d-scope").textContent=gs.length>1?(gs.length+" groups"):("group "+pg.label);
+    for(const k in DKEY){ const v0=pg.doctrine[k], same=gs.every(g=>g.doctrine[k]===v0); document.getElementById("d-"+k).textContent=same?D_LABEL[k][v0]:"mixed"; } }
+  const ppanel=document.getElementById("packet");
+  if(!pg){ ppanel.classList.add("dim"); document.getElementById("p-scope").textContent="no group"; document.getElementById("p-trig").textContent="—"; document.getElementById("p-follow").textContent="—"; document.getElementById("p-rallyv").textContent="—"; }
+  else{ ppanel.classList.remove("dim"); document.getElementById("p-scope").textContent="group "+pg.label+(gs.length>1?" (+"+(gs.length-1)+")":"");
+    document.getElementById("p-trig").textContent=TRIG[pg.trigIdx].lbl; document.getElementById("p-follow").textContent=FOLLOW[pg.followIdx].lbl;
+    const rv=document.getElementById("p-rallyv"), row=document.getElementById("p-rally");
+    if(settingRally){ rv.textContent="click map…"; row.classList.add("arm"); } else { rv.textContent=pg.followUp.hasRally?"set · reset ⊕":"rear · set ⊕"; row.classList.remove("arm"); } }
+}
+
+function setVerb(v){ activeVerb=v; document.querySelectorAll("#verbs button").forEach(b=>b.classList.toggle("on",b.dataset.verb===v)); document.getElementById("h-verb").textContent=VERB[v].name; }
+document.querySelectorAll("#verbs button").forEach(b=>b.onclick=()=>setVerb(b.dataset.verb));
+addEventListener("keydown",(e)=>{
+  if((e.key==="g"||e.key==="G")&&(e.ctrlKey||e.metaKey)){ e.preventDefault(); formGroup(); return; }
+  if(e.key===" "){ e.preventDefault(); if(mode==="phased" && phase.windowOpen) resumePhase(); else manualPause=!manualPause; return; }
+  if(e.key==="1") setVerb("MOVE"); else if(e.key==="2") setVerb("ATTACK"); else if(e.key==="3") setVerb("HOLD"); else if(e.key==="4") setVerb("WITHDRAW");
+  else if(e.key==="a"||e.key==="A"){ units.forEach(u=>{if(u.faction===0&&!CLASS[u.cls].static)u.selected=true;}); refreshPanels(); }
+  else if(e.key==="Escape"){ units.forEach(u=>u.selected=false); settingRally=false; refreshPanels(); }
+  else if(e.key==="r"||e.key==="R"){ initWorld(); refreshPanels(); }
+});
+const MODES=["free","continuous","phased"];
+document.getElementById("b-mode").onclick=()=>setMode(MODES[(MODES.indexOf(mode)+1)%MODES.length]);
+document.getElementById("cw-resume").onclick=()=>resumePhase();
+document.getElementById("b-group").onclick=()=>formGroup();
+document.getElementById("b-all").onclick=()=>{units.forEach(u=>{if(u.faction===0&&!CLASS[u.cls].static)u.selected=true;});refreshPanels();};
+document.getElementById("b-reset").onclick=()=>{initWorld();refreshPanels();};
+document.getElementById("b-redatk").onclick=()=>{ for(const u of units) if(u.faction===1&&!CLASS[u.cls].static) setOrder(u,"ATTACK",W*0.22,H*0.5); };
+
+// legend
+(function(){ const host=document.getElementById("legend"); const items=[["tri","Light"],["sq","Heavy"],["dia","Bow"],["arw","Cav"]];
+  const svg=(sh)=>{ const s=8; let p;
+    if(sh==="sq") p=`<rect x="${9-s*0.8}" y="${9-s*0.8}" width="${s*1.6}" height="${s*1.6}"/>`;
+    else if(sh==="dia") p=`<polygon points="9,${9-s},${9+s},9,9,${9+s},${9-s},9"/>`;
+    else if(sh==="tri") p=`<polygon points="${9+s},9,${9-s*0.7},${9-s*0.8},${9-s*0.7},${9+s*0.8}"/>`;
+    else p=`<polygon points="${9+s*1.1},9,${9-s*0.6},${9-s*0.7},${9-s*0.1},9,${9-s*0.6},${9+s*0.7}"/>`;
+    return `<svg width="18" height="18" viewBox="0 0 18 18" fill="#d7dcda" stroke="#0b0f12" stroke-width="1.4">${p}</svg>`; };
+  host.innerHTML=items.map(([sh,nm])=>`${svg(sh)}<b>${nm}</b>`).join('<span style="width:2px"></span>')+
+    `<span style="opacity:.6;margin-left:6px">shape = class · colour = side</span>`;
+})();
+
+// ---- main loop ------------------------------------------------------
+let acc=0,last=performance.now(),simCount=0,hzWin=performance.now(),hzShown=SIM_HZ;
+function frame(now){ let dtR=(now-last)/1000; last=now; if(dtR>MAX_STEP) dtR=MAX_STEP;
+  if(isPaused()){ acc=0; } else { acc+=dtR; while(acc>=DT && !isPaused()){ step(DT); acc-=DT; simCount++; } }
+  render(acc/DT); hud(now); updateChips(); requestAnimationFrame(frame); }
+function hud(now){ if(now-hzWin>=500){ hzShown=Math.round(simCount/((now-hzWin)/1000)); simCount=0; hzWin=now; }
+  let selN=0,blue=0,red=0; for(const u of units){ if(CLASS[u.cls].static) continue; if(u.selected)selN++; if(u.faction===0)blue++; else red++; }
+  document.getElementById("h-hz").textContent=(isPaused()?"paused":hzShown+" Hz");
+  document.getElementById("h-sel").textContent=selN; document.getElementById("h-blue").textContent=blue; document.getElementById("h-red").textContent=red;
+  const cmd=document.getElementById("h-cmd"), cbar=document.getElementById("h-cbar"); cmd.classList.toggle("warn", now<blockUntil);
+  if(mode==="free"){ cmd.textContent="unlimited"; cbar.style.width="100%"; cbar.style.background="var(--accent)"; }
+  else if(mode==="continuous"){ cmd.textContent=Math.floor(tokens)+" / "+CMD.continuous.cap; cbar.style.width=(100*tokens/CMD.continuous.cap)+"%"; cbar.style.background="var(--accent)"; }
+  else { if(phase.windowOpen){ cmd.textContent=phase.points+" pts · spend"; cbar.style.width=(100*phase.points/CMD.phased.N)+"%"; cbar.style.background="var(--accent)"; }
+    else { const left=Math.max(0,phase.timer); cmd.textContent="next in "+left.toFixed(1)+"s"; cbar.style.width=(100*(1-left/CMD.phased.interval))+"%"; cbar.style.background="rgba(150,178,187,.5)"; } }
+  const win=document.getElementById("cmdwin");
+  if(mode==="phased" && phase.windowOpen){ win.hidden=false; document.getElementById("cw-pts").textContent=phase.points+" pts"; } else win.hidden=true;
+}
+
+// boot
+resize(); initWorld(); setVerb("MOVE"); setMode("continuous"); refreshPanels(); requestAnimationFrame(frame);
+</script>
