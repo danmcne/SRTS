@@ -1,4 +1,4 @@
-# Command
+# SRTS
 
 A semi-real-time strategy prototype in which the scarce resource is *command*, not
 mouse speed. The player acts as a commander who issues intent — where to go, how to
